@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import pathlib
 import re
 import subprocess
@@ -34,10 +35,10 @@ def cli():
 )
 @click.option("--fetch/--no-fetch", default=True)
 def status(paths, fetch):
-    for d in paths:
-        if fetch:
-            subprocess.run(["git", "fetch", "--quiet"], cwd=str(d))
+    if fetch:
+        git_fetch(paths)
 
+    for d in paths:
         r = subprocess.run(
             ["git", "status", "--branch", "--porcelain"],
             cwd=str(d),
@@ -59,13 +60,32 @@ def status(paths, fetch):
         # Repos without branches assumed to be not pushed to remote.
         r_status = ""
         if "??" in r.stdout or "None" in r_branch:
-            r_status = click.style("+", fg="red") + " "
+            r_status = click.style("+", fg="red")
+        if " M " in r.stdout:  # locally modified file
+            r_status += click.style("M", fg="red")
+        if "[ahead " in r.stdout:  # local ahead of origin
+            r_status += click.style("^", fg="red")
+        if r_status != "":
+            r_status += " "
 
         # Repository parent directory, for multiple inputs.
         r_parent = str(d.parent).replace(str(pathlib.Path.home()), "~")
 
         # Output
         click.echo(f"{r_status}{r_name} ({r_branch}) [{r_parent}]")
+
+
+def git_fetch(paths: Iterable[pathlib.Path]):
+    """Perform a git fetch on all directories in the given path."""
+
+    async def run_in_parallel(cmd):
+        await (await asyncio.create_subprocess_shell(cmd)).communicate()
+
+    async def fetch_in_parallel():
+        await asyncio.gather(*[run_in_parallel(cmd) for cmd in commands])
+
+    commands = [f"cd {d} && git fetch --quiet" for d in paths]
+    asyncio.run(fetch_in_parallel())
 
 
 if __name__ == "__main__":
