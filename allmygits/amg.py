@@ -2,9 +2,21 @@
 import pathlib
 import re
 import subprocess
+from typing import Iterable, Tuple
 
 import click
-from typing import Iterable, List
+
+
+def validate_paths(ctx, param, value: Iterable[str]) -> Tuple[pathlib.Path]:
+    """Return a list of git directories in the given paths."""
+    git_dirs = []
+    for path in value:
+        for d in pathlib.Path(path).iterdir():
+            if (d / ".git").exists():
+                git_dirs.append(d)
+    if git_dirs:
+        return tuple(git_dirs)
+    raise click.BadParameter("No git repositories were located.", ctx=ctx, param=param)
 
 
 @click.group("amg")
@@ -14,13 +26,15 @@ def cli():
 
 @cli.command("status")
 @click.argument(
-    "paths", type=click.Path(file_okay=False, exists=True), nargs=-1, required=True
+    "paths",
+    type=click.Path(file_okay=False, exists=True),
+    nargs=-1,
+    required=True,
+    callback=validate_paths,
 )
 @click.option("--fetch/--no-fetch", default=True)
 def status(paths, fetch):
-    git_dirs = get_git_directories(paths)
-
-    for d in git_dirs:
+    for d in paths:
         if fetch:
             subprocess.run(["git", "fetch", "--quiet"], cwd=str(d))
 
@@ -52,16 +66,6 @@ def status(paths, fetch):
 
         # Output
         click.echo(f"{r_status}{r_name} ({r_branch}) [{r_parent}]")
-
-
-def get_git_directories(paths: Iterable[str]) -> List[pathlib.Path]:
-    """Return a list of git directories in the given paths."""
-    git_dirs = []
-    for path in paths:
-        for d in pathlib.Path(path).iterdir():
-            if (d / ".git").exists():
-                git_dirs.append(d)
-    return git_dirs
 
 
 if __name__ == "__main__":
